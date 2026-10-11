@@ -1,8 +1,13 @@
 "use strict";
 const $=(s,e=document)=>e.querySelector(s),$$=(s,e=document)=>[...e.querySelectorAll(s)];
 const E=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const api=async(p,o={})=>{const r=await fetch("/api"+p,{credentials:"same-origin",method:o.method||"GET",headers:{"X-Req":"1",...(o.json?{"Content-Type":"application/json"}:{})},body:o.json?JSON.stringify(o.json):o.body});
- const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.detail=="string"?d.detail:"Something went wrong");return d};
+const api=async(p,o={})=>{let r;try{r=await fetch("/api"+p,{credentials:"same-origin",method:o.method||"GET",headers:{"X-Req":"1",...(o.json?{"Content-Type":"application/json"}:{})},body:o.json?JSON.stringify(o.json):o.body})}catch{throw Error("Cannot reach the server. Check your connection and try again.")}
+ const d=await r.json().catch(()=>null);if(!r.ok)throw Error(d&&typeof d.detail=="string"?d.detail:`Server problem (HTTP ${r.status}). The API may be waking up or misconfigured.`);if(d===null)throw Error("The API returned a non-API response. The /api proxy is not pointing at the backend.");return d};
+const net=(m,bad)=>{let e=$("#net");if(!m)return e&&e.remove();if(!e){e=document.createElement("div");e.id="net";document.body.append(e)}e.textContent=m;e.className=bad?"bad":""};
+async function wake(){let last="";for(let n=0;n<14;n++){let retry=true;try{const r=await fetch("/api/health",{cache:"no-store"}),j=await r.json().catch(()=>null);
+  if(r.ok&&j&&j.ok)return net(),true;retry=[502,503,504].includes(r.status);last=j?`HTTP ${r.status}`:`HTTP ${r.status}, response is not from the API (the /api rewrite in vercel.json is missing or points to the wrong URL)`}catch{last="network error"}
+  if(!retry)break;net(n?`Waking the server (free hosting sleeps when idle)… ${n+1}/14`:"Connecting to the server…");await new Promise(r=>setTimeout(r,5000))}
+ net(`Cannot reach the API: ${last}`,1);return false}
 let U=null,CACHE={};
 const PG={home:["Diligite Lumen Sapientiae",1,0],login:["Verifying your identity",7,200],register:["Opening the register",5,150],dash:["Gathering your day",2,280],events:["Aligning the calendar",2,330],notices:["Ringing the bell",3,40],community:["Linking your batch",4,160],resources:["Stacking the library",5,25],gallery:["Developing memories",6,300],profile:["Pressing your portrait",6,190],about:["Meeting the architect",7,260],admin:["Unlocking the control room",7,0]};
 const ld=$("#ld");
@@ -26,9 +31,9 @@ document.addEventListener("click",async e=>{const b=e.target.closest("[data-auth
  if(b.dataset.auth){authUI(b.dataset.auth)}else if("x" in b.dataset)A.close();else if(b.id=="lb")b.remove();else if(b.dataset.lb)document.body.insertAdjacentHTML("beforeend",`<div id="lb"><img src="${E(b.src)}" alt="${E(b.alt)}"></div>`);
  else if(b.dataset.tab){tab=b.dataset.tab;go()}else if(b.dataset.flt){const v=b.dataset.flt;$$("[data-flt]").forEach(x=>x.classList.toggle("on",x==b));$$("[data-c]").forEach(x=>x.hidden=v!="All"&&x.dataset.c!=v)}
  else if(b.dataset.a)act(b.dataset)});
-document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target,er=$(".err",f);if(er)er.textContent="";
- try{if(f.id=="lf"){await api("/login",{method:"POST",json:Object.fromEntries(new FormData(f))});A.close();U=await api("/me");paint()}
- else if(f.id=="rf"){const d=new FormData(f);if(d.get("password")!=d.get("confirm"))throw Error("Passwords do not match");await api("/register",{method:"POST",body:d});f.innerHTML=`<h3>Registration received</h3><p class="ok">An admin will review it. You can log in once approved.</p>`}
+document.addEventListener("submit",async e=>{e.preventDefault();const f=e.target,fid=f.getAttribute("id"),er=$(".err",f);if(er)er.textContent="";
+ try{if(fid=="lf"){await api("/login",{method:"POST",json:Object.fromEntries(new FormData(f))});A.close();U=await api("/me");paint()}
+ else if(fid=="rf"){const d=new FormData(f);if(d.get("password")!=d.get("confirm"))throw Error("Passwords do not match");await api("/register",{method:"POST",body:d});f.innerHTML=`<h3>Registration received</h3><p class="ok">An admin will review it. You can log in once approved.</p>`}
  else if(f.dataset.f){const t=f.dataset.f,o=Object.fromEntries(new FormData(f)),id=o.id;delete o.id;
   if(t=="users")await api("/admin/users/"+id,{method:"PATCH",json:o});else if(t=="gallery")await api("/gallery",{method:"POST",body:new FormData(f)});else await api(`/c/${t}${id?"/"+id:""}`,{method:id?"PUT":"POST",json:o});go()}}
  catch(x){if(er)er.textContent=x.message;else alert(x.message)}});
@@ -89,4 +94,4 @@ async function go(){if(!U)return;let k=location.hash.slice(2)||"dash";if(!P[k]||
  $("#app").innerHTML=`<aside><a class="brand" href="#/dash"><img src="/logo.svg" alt="NDC crest"><span>Batch 28</span></a>${n.map(([a,l])=>`<a class="nv ${a==k?"on":""}" href="#/${a}">${l}</a>`).join("")}<div class="me">${E(U.name)} · ${U.role}<br><button class="ghost" data-a="out">Log out</button></div></aside><section id="pg">${h}</section>`;fx()}
 addEventListener("hashchange",()=>U&&go());
 async function paint(){const on=!!U;$("#land").hidden=on;$("#app").hidden=!on;scrollTo(0,0);if(on)return go();document.title="NDC Batch 28 — Notre Dame College, Dhaka";await load("home");fx()}
-(async()=>{$("#gal").innerHTML=gi(await api("/gallery").catch(()=>[]));try{U=await api("/me")}catch{U=null}paint()})();
+(async()=>{await wake();$("#gal").innerHTML=gi(await api("/gallery").catch(()=>[]));try{U=await api("/me")}catch{U=null}paint()})();
